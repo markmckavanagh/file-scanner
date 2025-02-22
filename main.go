@@ -5,8 +5,10 @@ import (
     "net"
 	"fmt"
 	"io"
+	"context"
 
     "google.golang.org/grpc"
+	"github.com/google/uuid"
 
     pb "file-scanner/proto"
 )
@@ -18,6 +20,33 @@ const (
 
 type Server struct {
     pb.UnimplementedFileServiceServer
+}
+
+type ScanSession struct {
+    SessionID     string
+    Files         map[string]bool
+    Completed     bool
+}
+
+// In-memory storage of scan sessions
+var scanSessions = map[string]*ScanSession{}
+
+func (s *Server) InitiateScan(ctx context.Context, req *pb.InitiateScanRequest) (*pb.InitiateScanResponse, error) {
+    sessionId := uuid.New().String()
+    files := make(map[string]bool)
+
+    for _, fileId := range req.FileIds {
+        files[fileId] = false
+    }
+
+    scanSessions[sessionId] = &ScanSession{
+        SessionID: sessionId,
+        Files:     files,
+    }
+
+    return &pb.InitiateScanResponse{
+        SessionId: sessionId,
+    }, nil
 }
 
 func (s *Server) UploadFile(stream pb.FileService_UploadFileServer) error {

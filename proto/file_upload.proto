@@ -3,12 +3,22 @@ syntax = "proto3";
 option go_package = "./proto;proto";
 
 service FileService {
+    rpc InitiateScan (InitiateScanRequest) returns (InitiateScanResponse);
     rpc UploadFile (stream FileChunk) returns (UploadStatus);
+}
+
+message InitiateScanRequest {
+    repeated string fileIds = 1;
+}
+
+message InitiateScanResponse {
+    string sessionId = 1;
 }
 
 message FileChunk {
     string file_name = 1;
     bytes content = 2;
+    string sessionId = 3;
 }
 
 message UploadStatus {

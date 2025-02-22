@@ -7,6 +7,7 @@ import (
     "os"
     "path/filepath"
     "sync"
+    "fmt"
 
 	"google.golang.org/grpc"
 
@@ -50,7 +51,7 @@ func hashFileName(fileName string) string {
     return hex.EncodeToString(hasher.Sum(nil))
 }
 
-func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup, pt *ProgressTracker) {
+func uploadFile(client pb.FileServiceClient, sessionId string, filePath string, wg *sync.WaitGroup, pt *ProgressTracker) {
     defer wg.Done()
 
     file, err := os.Open(filePath)
@@ -81,6 +82,7 @@ func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup
 
         err = stream.Send(&pb.FileChunk{
             FileName: hashedFileName,
+            SessionId: sessionId,
             Content:  buffer[:n],
         })
         if err != nil {
@@ -130,6 +132,20 @@ func walkAndCollectFiles(rootDir string, pt *ProgressTracker) []string {
     return files
 }
 
+func initiateScan(client pb.FileServiceClient, hashedFileNames []string) (string, error) {
+    req := &pb.InitiateScanRequest{
+        FileIds: hashedFileNames,
+    }
+
+    res, err := client.InitiateScan(context.Background(), req)
+    if err != nil {
+        return "", fmt.Errorf("failed to initiate scan session: %v", err)
+    }
+
+    log.Printf("Scan session initiated. Session ID: %s", res.SessionId)
+    return res.SessionId, nil
+}
+
 
 func main() {
     
@@ -146,10 +162,20 @@ func main() {
     pt := NewProgressTracker()
     files := walkAndCollectFiles(rootDir, pt)
 
+    var hashedFileNames []string
+    for _, file := range files {
+        hashedFileNames = append(hashedFileNames, hashFileName(file))
+    }
+
+    sessionId, err := initiateScan(client, hashedFileNames)
+    if err != nil {
+        log.Fatalf("Failed to initiate scan session: %v", err)
+    }
+
     var wg sync.WaitGroup
     for _, file := range files {
         wg.Add(1)
-        go uploadFile(client, file, &wg, pt)
+        go uploadFile(client, sessionId, file, &wg, pt)
     }
     wg.Wait()
 
