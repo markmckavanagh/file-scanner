@@ -21,10 +21,15 @@ type ProgressTracker struct {
     mu          sync.Mutex
 }
 
-func NewProgressTracker(totalSize int64) *ProgressTracker {
-    return &ProgressTracker{
-        totalSize: totalSize,
-    }
+func NewProgressTracker() *ProgressTracker {
+    return &ProgressTracker{}
+}
+
+func (pt *ProgressTracker) AddFileSize(size int64) {
+    pt.mu.Lock()
+    defer pt.mu.Unlock()
+
+    pt.totalSize += size
 }
 
 func (pt *ProgressTracker) AddUploaded(bytes int64) {
@@ -34,29 +39,6 @@ func (pt *ProgressTracker) AddUploaded(bytes int64) {
     pt.uploaded += bytes
     progress := float64(pt.uploaded) / float64(pt.totalSize) * 100
     log.Printf("Progress: %.2f%% (%d/%d bytes uploaded)", progress, pt.uploaded, pt.totalSize)
-}
-
-func uploadFiles(client pb.FileServiceClient, rootDir string, pt *ProgressTracker) {
-    var wg sync.WaitGroup
-
-    err := filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
-        if err != nil {
-            return err
-        }
-
-        if !d.IsDir() {
-            wg.Add(1)
-            go uploadFile(client, path, &wg, pt)
-        }
-
-        return nil
-    })
-
-    if err != nil {
-        log.Fatalf("Error walking directory: %v", err)
-    }
-
-    wg.Wait()
 }
 
 func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup, pt *ProgressTracker) {
@@ -110,8 +92,8 @@ func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup
     log.Printf("File '%s' uploaded successfully: %v", fileName, res.Message)
 }
 
-func getTotalSize(rootDir string) (int64, error) {
-    var totalSize int64
+func walkAndCollectFiles(rootDir string, pt *ProgressTracker) []string {
+    var files []string
 
     err := filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
         if err != nil {
@@ -123,15 +105,20 @@ func getTotalSize(rootDir string) (int64, error) {
             if err != nil {
                 return err
             }
-            totalSize += fileInfo.Size()
+
+            pt.AddFileSize(fileInfo.Size())
+            files = append(files, path)
         }
 
         return nil
     })
 
-    return totalSize, err
-}
+    if err != nil {
+        log.Fatalf("Error walking directory: %v", err)
+    }
 
+    return files
+}
 
 
 func main() {
@@ -146,18 +133,15 @@ func main() {
 
     rootDir := "./test_files"
 
-    totalSize, err := getTotalSize(rootDir)
-    if err != nil {
-        log.Fatalf("Failed to calculate total file size: %v", err)
+    pt := NewProgressTracker()
+    files := walkAndCollectFiles(rootDir, pt)
+
+    var wg sync.WaitGroup
+    for _, file := range files {
+        wg.Add(1)
+        go uploadFile(client, file, &wg, pt)
     }
-  
-    log.Printf("Total file size: %d bytes", totalSize)
-
-    pt := NewProgressTracker(totalSize)
-
-    log.Printf("Walking through directory %s", rootDir)
-
-    uploadFiles(client, rootDir, pt)
+    wg.Wait()
 
     log.Println("All files uploaded successfully!")
 }
