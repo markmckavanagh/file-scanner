@@ -1,0 +1,2 @@
+# Ignore generated gRPC files
+proto/*.pb.go
