@@ -1,2 +1,5 @@
 # Ignore generated gRPC files
 proto/*.pb.go
+
+# Ignore build output
+server

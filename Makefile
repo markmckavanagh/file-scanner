@@ -14,7 +14,7 @@ start: generate
 # Spin up client
 client: generate
 	@echo "Starting gRPC client..."
-	go run client.go
+	go run client/client.go
 
 # Sort GRPC shiz
 generate:
@@ -30,5 +30,5 @@ clean:
 
 # Build an executable
 build: generate
-	@echo "Building the project..."
+	@echo "Building server binary..."
 	go build -o server .
