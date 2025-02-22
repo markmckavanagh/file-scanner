@@ -15,7 +15,28 @@ import (
 
 const chunkSize = 1024 * 1024 // 1MB per chunk
 
-func uploadFiles(client pb.FileServiceClient, rootDir string) {
+type ProgressTracker struct {
+    totalSize   int64
+    uploaded    int64
+    mu          sync.Mutex
+}
+
+func NewProgressTracker(totalSize int64) *ProgressTracker {
+    return &ProgressTracker{
+        totalSize: totalSize,
+    }
+}
+
+func (pt *ProgressTracker) AddUploaded(bytes int64) {
+    pt.mu.Lock()
+    defer pt.mu.Unlock()
+
+    pt.uploaded += bytes
+    progress := float64(pt.uploaded) / float64(pt.totalSize) * 100
+    log.Printf("Progress: %.2f%% (%d/%d bytes uploaded)", progress, pt.uploaded, pt.totalSize)
+}
+
+func uploadFiles(client pb.FileServiceClient, rootDir string, pt *ProgressTracker) {
     var wg sync.WaitGroup
 
     err := filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
@@ -25,7 +46,7 @@ func uploadFiles(client pb.FileServiceClient, rootDir string) {
 
         if !d.IsDir() {
             wg.Add(1)
-            go uploadFile(client, path, &wg)
+            go uploadFile(client, path, &wg, pt)
         }
 
         return nil
@@ -38,7 +59,7 @@ func uploadFiles(client pb.FileServiceClient, rootDir string) {
     wg.Wait()
 }
 
-func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup) {
+func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup, pt *ProgressTracker) {
     defer wg.Done()
 
     file, err := os.Open(filePath)
@@ -75,6 +96,8 @@ func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup
             return
         }
 
+         pt.AddUploaded(int64(n))
+
         log.Printf("Sent chunk of %d bytes for file %s", n, fileName)
     }
 
@@ -85,6 +108,28 @@ func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup
     }
 
     log.Printf("File '%s' uploaded successfully: %v", fileName, res.Message)
+}
+
+func getTotalSize(rootDir string) (int64, error) {
+    var totalSize int64
+
+    err := filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
+        if err != nil {
+            return err
+        }
+
+        if !d.IsDir() {
+            fileInfo, err := os.Stat(path)
+            if err != nil {
+                return err
+            }
+            totalSize += fileInfo.Size()
+        }
+
+        return nil
+    })
+
+    return totalSize, err
 }
 
 
@@ -101,9 +146,18 @@ func main() {
 
     rootDir := "./test_files"
 
+    totalSize, err := getTotalSize(rootDir)
+    if err != nil {
+        log.Fatalf("Failed to calculate total file size: %v", err)
+    }
+  
+    log.Printf("Total file size: %d bytes", totalSize)
+
+    pt := NewProgressTracker(totalSize)
+
     log.Printf("Walking through directory %s", rootDir)
 
-    uploadFiles(client, rootDir)
+    uploadFiles(client, rootDir, pt)
 
     log.Println("All files uploaded successfully!")
 }
