@@ -11,6 +11,9 @@ import (
 	"google.golang.org/grpc"
 
     pb "file-scanner/proto"
+
+    "crypto/sha256"
+    "encoding/hex"
 )
 
 const chunkSize = 1024 * 1024 // 1MB per chunk
@@ -41,6 +44,12 @@ func (pt *ProgressTracker) AddUploaded(bytes int64) {
     log.Printf("Progress: %.2f%% (%d/%d bytes uploaded)", progress, pt.uploaded, pt.totalSize)
 }
 
+func hashFileName(fileName string) string {
+    hasher := sha256.New()
+    hasher.Write([]byte(fileName))
+    return hex.EncodeToString(hasher.Sum(nil))
+}
+
 func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup, pt *ProgressTracker) {
     defer wg.Done()
 
@@ -57,6 +66,7 @@ func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup
     }
 
     fileName := filepath.Base(filePath)
+    hashedFileName := hashFileName(fileName)
     buffer := make([]byte, chunkSize)
 
     for {
@@ -70,7 +80,7 @@ func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup
         }
 
         err = stream.Send(&pb.FileChunk{
-            FileName: fileName,
+            FileName: hashedFileName,
             Content:  buffer[:n],
         })
         if err != nil {
@@ -89,7 +99,7 @@ func uploadFile(client pb.FileServiceClient, filePath string, wg *sync.WaitGroup
         return
     }
 
-    log.Printf("File '%s' uploaded successfully: %v", fileName, res.Message)
+    log.Printf("File '%s' uploaded successfully (hashed to '%s'): %v", fileName, hashedFileName, res.Message)
 }
 
 func walkAndCollectFiles(rootDir string, pt *ProgressTracker) []string {
