@@ -18,6 +18,7 @@ import (
 )
 
 const chunkSize = 1024 * 1024 // 1MB per chunk
+//const chunkSize = 6 * 1024 * 1024
 
 type ProgressTracker struct {
     totalSize   int64
@@ -99,9 +100,9 @@ func uploadFile(client pb.FileServiceClient, sessionId string, filePath string, 
     if err != nil {
         log.Printf("Error closing stream for file %s: %v", fileName, err)
         return
+    } else {
+        log.Printf("File '%s' uploaded successfully (hashed to '%s'): %v", fileName, hashedFileName, res.Message)
     }
-
-    log.Printf("File '%s' uploaded successfully (hashed to '%s'): %v", fileName, hashedFileName, res.Message)
 }
 
 func walkAndCollectFiles(rootDir string, pt *ProgressTracker) []string {
@@ -149,7 +150,7 @@ func initiateScan(client pb.FileServiceClient, hashedFileNames []string) (string
 
 func main() {
     
-    conn, err := grpc.Dial("localhost:3000", grpc.WithInsecure())
+    conn, err := grpc.Dial("localhost:3001", grpc.WithInsecure())
     if err != nil {
         log.Fatalf("Failed to connect to server: %v", err)
     }
@@ -179,5 +180,5 @@ func main() {
     }
     wg.Wait()
 
-    log.Println("All files uploaded successfully!")
+    //log.Println("All files uploaded successfully!")
 }
