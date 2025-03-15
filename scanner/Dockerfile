@@ -5,9 +5,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY scanner/ .
+COPY . .
 
-RUN go build -o /usr/local/bin/rabbit-consumer ./consumer.go
+RUN go build -o /usr/local/bin/rabbit-consumer ./scanner/consumer.go
 
 FROM alpine:latest
 

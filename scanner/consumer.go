@@ -1,22 +1,99 @@
 package main
 
 import (
-    "strings"
+	"context"
+	"fmt"
 	"log"
+	"bytes"
+	"strings"
+	"io"
 
-    amqp "github.com/rabbitmq/amqp091-go"
+	"file-scanner/fileupload"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func FileScanner(filePath string) error {
+const (
+	chunkSize int64 = 1024 * 1024 * 5 // 5MB
+)
+
+type FileProcessor struct {
+	s3Client *s3.Client
+	bucket   string
+}
+
+func processChunk(chunkData []byte, partNum int) {
+	if strings.Contains(string(chunkData), "dodgy") {
+		log.Printf("Found dodgy data in part %d", partNum)
+	} else {
+		log.Printf("Part %d is clean", partNum)
+	}
+}
+
+func (processor *FileProcessor) downloadAndProcessPart(partNum int, file string, offset int64, size int64) {
+
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, offset+size-1)
+
+	resp, err := processor.s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: &processor.bucket,
+		Key:    &file,
+		Range:  &rangeHeader,
+	})
+	if err != nil {
+		log.Printf("Failed to download part %d: %v", partNum, err)
+	}
+	defer resp.Body.Close()
+
+	// Read the chunk data directly into memory
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, resp.Body)
+	if err != nil {
+		log.Printf("Failed to read part %d: %v", partNum, err)
+	}
+
+	chunkData := buf.Bytes()
+	processChunk(chunkData, partNum)
+}
+
+func (processor *FileProcessor) ScanFile(filePath string) error {
     log.Printf("Scanning file: %s", filePath)
+
+	resp, err := processor.s3Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+		Bucket: &processor.bucket,
+		Key:    &filePath,
+	})
+	if err != nil {
+		log.Fatalf("Failed to get object metadata: %v", err)
+	}
+
+	objectSize := *resp.ContentLength
+	fmt.Printf("Object size: %d bytes\n", objectSize)
+
+	numParts := (objectSize + chunkSize - 1) / chunkSize
+
+	for i := 0; int64(i) < numParts; i++ {
+		offset := int64(i) * chunkSize       
+		partSize := chunkSize               
+		if offset+partSize > objectSize { 
+			partSize = objectSize - offset
+		}
+
+		processor.downloadAndProcessPart(i, filePath, offset, partSize)
+
+		//TODO: We process each chunk sequentially for memory reasons however this could potentially be pretty damn slow for a massive file. Could
+		//create go routines to process in parallel but means may be more memory hungry.
+}
+	fmt.Println("Download and processing completed successfully!")
 
 	//TODO: After scanning we need to add a record to DB
 	//TODO: We also want to delete the file from s3 I think both of these could be seperate queues?? As defo want to ensire file deleted.
     log.Printf("Finished scanning file: %s", filePath)
-    return nil
+	return nil
 }
 
-func ProcessMessage(msg amqp.Delivery) {
+func (processor *FileProcessor) ProcessMessage(msg amqp.Delivery) {
     log.Printf("Received message: %s", msg.Body)
 
     // Assumes the message is of the format: "Session: sessionID, File: /path/to/file"
@@ -31,7 +108,7 @@ func ProcessMessage(msg amqp.Delivery) {
     filePart := strings.TrimSpace(parts[1])
     filePath := strings.TrimPrefix(filePart, "File: ")
 
-    if err := FileScanner(filePath); err != nil {
+    if err := processor.ScanFile(filePath); err != nil {
         log.Printf("Error scanning file: %v", err)
     } else {
         log.Printf("File %s scanned successfully", filePath)
@@ -82,10 +159,15 @@ func main() {
 
     log.Println("Waiting for messages...")
 
+    processor := FileProcessor{
+        s3Client: fileupload.NewS3Client(),
+		bucket: "newbuck/",
+    }
+
     // Run a goroutine to process incoming messages
     go func() {
         for msg := range msgs {
-            ProcessMessage(msg)
+            processor.ProcessMessage(msg)
         }
     }()
 
