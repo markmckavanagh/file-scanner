@@ -13,7 +13,7 @@ import (
 
 func NewS3Client() *s3.Client {
 	
-	endpoint := "http://localhost:9000"
+	endpoint := "http://minio:9000"
 	accessKey := ""          
 	secretKey := ""          
 	region := "us-east-1"

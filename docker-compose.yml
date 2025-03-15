@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"  # RabbitMQ client connections
+      - "15672:15672"  # RabbitMQ management UI
+    networks:
+      - app-network
+
+  grpc-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grpc-server
+    ports:
+      - "50051:50051"
+    networks:
+      - app-network
+    depends_on:
+      - rabbitmq
+      - minio
+
+  grpc-client:
+    build:
+      context: .
+      dockerfile: ./client/Dockerfile
+    container_name: grpc-client
+    networks:
+      - app-network
+    depends_on:
+      - grpc-server
+
+  rabbit-consumer:
+    build:
+      context: .
+      dockerfile: ./scanner/Dockerfile
+    container_name: rabbit-consumer
+    networks:
+      - app-network
+    depends_on:
+      - rabbitmq
+      - minio
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data
+    ports:
+      - "9000:9000"  # MinIO API port
+      - "9001:9001"  # MinIO Console port
+    volumes:
+      - /mnt/data:/data
+      - /mnt/config:/root/.minio
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

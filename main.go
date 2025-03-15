@@ -17,13 +17,13 @@ import (
 // //TODO: When running the server lets update to the make command to also spin up minio.
 
 const (
-    port = ":3001"
+    port = ":50051"
 )
 
 func main() {
 
 	// Connect to RabbitMQ
-    rabbitConn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+    rabbitConn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
     if err != nil {
         log.Fatalf("Failed to connect to RabbitMQ: %v", err)
     }

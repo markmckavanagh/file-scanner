@@ -18,7 +18,6 @@ import (
 )
 
 const chunkSize = 1024 * 1024 // 1MB per chunk
-//const chunkSize = 6 * 1024 * 1024
 
 type ProgressTracker struct {
     totalSize   int64
@@ -150,7 +149,7 @@ func initiateScan(client pb.FileServiceClient, hashedFileNames []string) (string
 
 func main() {
     
-    conn, err := grpc.Dial("localhost:3001", grpc.WithInsecure())
+    conn, err := grpc.Dial("grpc-server:50051", grpc.WithInsecure())
     if err != nil {
         log.Fatalf("Failed to connect to server: %v", err)
     }
@@ -158,7 +157,7 @@ func main() {
 
     client := pb.NewFileServiceClient(conn)
 
-    rootDir := "./test_files"
+    rootDir := "/app/test_files"
 
     pt := NewProgressTracker()
     files := walkAndCollectFiles(rootDir, pt)
@@ -179,6 +178,4 @@ func main() {
         go uploadFile(client, sessionId, file, &wg, pt)
     }
     wg.Wait()
-
-    //log.Println("All files uploaded successfully!")
 }
