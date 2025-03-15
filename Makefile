@@ -16,6 +16,10 @@ client: generate
 	@echo "Starting gRPC client..."
 	go run client/client.go
 
+consumer:
+	@echo "Starting RabbitMQConsumer..."
+	go run scanner/consumer.go
+
 # Sort GRPC shiz
 generate:
 	@echo "Regenerating gRPC files..."

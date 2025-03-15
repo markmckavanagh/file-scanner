@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 
 	"github.com/google/uuid"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	amqp "github.com/rabbitmq/amqp091-go"
 
 	pb "file-scanner/proto"
 )
@@ -19,6 +21,8 @@ type Server struct {
 	pb.UnimplementedFileServiceServer
 	S3Client *s3.Client
 	Bucket   string
+	RabbitConn *amqp.Connection
+    RabbitChan *amqp.Channel
 }
 
 type ScanSession struct {
@@ -51,6 +55,7 @@ func (s *Server) InitiateScan(ctx context.Context, req *pb.InitiateScanRequest) 
 func (s *Server) UploadFile(stream pb.FileService_UploadFileServer) error {
 	const partSizeLimit = 5 * 1024 * 1024 // 5MB
 	var fileName string
+	var sessionId string
 	var buffer bytes.Buffer
 
 	var parts []types.CompletedPart
@@ -73,6 +78,7 @@ func (s *Server) UploadFile(stream pb.FileService_UploadFileServer) error {
 		}
 
 		fileName = req.FileName
+		sessionId = req.SessionId
 
 		// We buffer the chunks of file received from the stream
 		buffer.Write(req.Content)
@@ -167,8 +173,36 @@ func (s *Server) UploadFile(stream pb.FileService_UploadFileServer) error {
 		}
 	}
 
+	// File fully uploaded, now send message to RabbitMQ
+	err := s.sendToRabbitMQ(sessionId, fileName)
+	if err != nil {
+		return err
+	}
+
 	return stream.SendAndClose(&pb.UploadStatus{
 		Message: "File uploaded successfully!",
 		Success: true,
 	})
+}
+
+// sendToRabbitMQ sends a message to RabbitMQ with file info
+func (s *Server) sendToRabbitMQ(sessionID, fileName string) error {
+    message := fmt.Sprintf("Session: %s, File: %s", sessionID, fileName)
+    err := s.RabbitChan.Publish(
+        "",    // exchange
+        "file_scan_queue", // routing key
+        false, // mandatory
+        false, // immediate
+        amqp.Publishing{
+            ContentType: "text/plain",
+            Body:        []byte(message),
+        },
+    )
+    if err != nil {
+        log.Printf("Failed to publish message to RabbitMQ: %v", err)
+        return err
+    }
+
+    log.Printf("Published message to RabbitMQ: %s", message)
+    return nil
 }

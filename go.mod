@@ -1,8 +1,8 @@
 module file-scanner
 
-go 1.22
+go 1.23
 
-toolchain go1.24.0
+toolchain go1.24.1
 
 require google.golang.org/grpc v1.70.0
 
@@ -26,6 +26,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.17 // indirect
 	github.com/aws/smithy-go v1.22.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/securecookie v1.1.2 // indirect
+	github.com/gorilla/sessions v1.4.0 // indirect
+	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
 	golang.org/x/net v0.32.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
