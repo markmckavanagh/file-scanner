@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"strings"
 	"io"
+	"net"
 
 	"file-scanner/fileupload"
 
@@ -17,6 +18,8 @@ import (
 
 const (
 	chunkSize int64 = 1024 * 1024 * 5 // 5MB
+    clamAVHost string = "clamav"
+    clamAVPort string = "3310"
 )
 
 type FileProcessor struct {
@@ -24,12 +27,59 @@ type FileProcessor struct {
 	bucket   string
 }
 
-func processChunk(chunkData []byte, partNum int) {
-	if strings.Contains(string(chunkData), "dodgy") {
-		log.Printf("Found dodgy data in part %d", partNum)
-	} else {
-		log.Printf("Part %d is clean", partNum)
-	}
+func scanChunkWithClamAV(chunk []byte) error {
+
+    conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", clamAVHost, clamAVPort))
+    if err != nil {
+        return fmt.Errorf("failed to connect to ClamAV: %s", err)
+    }
+    defer conn.Close()
+
+    // Send INSTREAM command to ClamAV
+    _, err = conn.Write([]byte("zINSTREAM\000"))
+    if err != nil {
+        return fmt.Errorf("failed to write INSTREAM command: %s", err)
+    }
+
+    // Send the chunk size to ClamAV
+    chunkLen := make([]byte, 4)
+    chunkLen[0] = byte(len(chunk) >> 24) //moves the most significant byte to the first byte.
+    chunkLen[1] = byte(len(chunk) >> 16) //moves the second most significant byte
+    chunkLen[2] = byte(len(chunk) >> 8) //moves the third byte.
+    chunkLen[3] = byte(len(chunk)) // gets the least significant byte
+
+    _, err = conn.Write(chunkLen)
+    if err != nil {
+        return fmt.Errorf("failed to write chunk length: %s", err)
+    }
+
+    _, err = conn.Write(chunk)
+    if err != nil {
+        return fmt.Errorf("failed to write chunk: %s", err)
+    }
+
+    // End the stream by sending zero length chunk
+    _, err = conn.Write([]byte{0, 0, 0, 0})
+    if err != nil {
+        return fmt.Errorf("failed to write end of stream: %s", err)
+    }
+
+    // Read ClamAV's response
+    response := make([]byte, 4096)
+    n, err := conn.Read(response)
+    if err != nil {
+        return fmt.Errorf("failed to read ClamAV response: %s", err)
+    }
+
+    if bytes.Contains(response[:n], []byte("FOUND")) {
+        return fmt.Errorf("Virus detected: %s", string(response[:n]))
+    }
+
+    //TODO: I think regardless of whether a virus is found we should update a db with the file status and also delete the file from our system.
+    //I think enqueueing another message here either smae queue different task or seperate queue for this.
+
+    fmt.Println("Chunk scanned successfully")
+    return nil
 }
 
 func (processor *FileProcessor) downloadAndProcessPart(partNum int, file string, offset int64, size int64) {
@@ -46,7 +96,7 @@ func (processor *FileProcessor) downloadAndProcessPart(partNum int, file string,
 	}
 	defer resp.Body.Close()
 
-	// Read the chunk data directly into memory
+	// Read the chunk data into memory
 	buf := new(bytes.Buffer)
 	_, err = io.Copy(buf, resp.Body)
 	if err != nil {
@@ -54,7 +104,10 @@ func (processor *FileProcessor) downloadAndProcessPart(partNum int, file string,
 	}
 
 	chunkData := buf.Bytes()
-	processChunk(chunkData, partNum)
+
+    if err := scanChunkWithClamAV(chunkData); err != nil {
+		log.Fatalf("ClamAV scan failed: %s", err)
+	}
 }
 
 func (processor *FileProcessor) ScanFile(filePath string) error {

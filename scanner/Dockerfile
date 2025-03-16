@@ -24,4 +24,8 @@ RUN curl -o /usr/local/bin/wait-for-it https://raw.githubusercontent.com/vishnub
 # Clean up (remove apk cache to reduce image size)
 RUN rm -rf /var/cache/apk/*
 
-CMD ["wait-for-it", "rabbitmq:5672", "--", "wait-for-it", "minio:9000", "--", "/usr/local/bin/rabbit-consumer"]
+COPY ./scanner/check_clamav_ready.sh /usr/local/bin/check_clamav_ready.sh
+RUN chmod +x /usr/local/bin/check_clamav_ready.sh
+
+
+CMD ["wait-for-it", "rabbitmq:5672", "--", "wait-for-it", "minio:9000", "--", "wait-for-it", "clamav:3310", "--", "/bin/sh", "-c", "/usr/local/bin/check_clamav_ready.sh && /usr/local/bin/rabbit-consumer"]

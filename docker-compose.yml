@@ -44,6 +44,7 @@ services:
     depends_on:
       - rabbitmq
       - minio
+      - clamav
 
   minio:
     image: minio/minio
@@ -60,7 +61,21 @@ services:
       - /mnt/config:/root/.minio
     networks:
       - app-network
+  
+  clamav:
+    image: clamav/clamav
+    container_name: clamav
+    ports:
+      - "3310:3310"  # Expose ClamAV's TCP service for INSTREAM mode
+    restart: always
+    volumes:
+      - clamav_data:/var/lib/clamav  # Persistent storage for ClamAV's database
+    networks:
+      - app-network
 
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  clamav_data:  # Volume for ClamAV data persistence
